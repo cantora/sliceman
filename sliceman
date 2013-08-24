@@ -1,0 +1,128 @@
+#!/usr/bin/env ruby
+
+require 'optparse'
+require 'logger'
+require 'sndfile'
+
+module Sliceman
+
+	class Cmd
+
+		CMDS = [
+			'slice',
+			'info'
+		]
+		def self.parse(argv)
+			options = {
+				:verbose 			=> 0,
+			}
+												
+			optparse = OptionParser.new do |opts|
+				opts.banner = "usage: #{File.basename(__FILE__)} [options] info|slice FILE1 [FILE2 ...]"
+				opts.separator ""
+
+				opts.separator "slice options:"
+				opts.on('-e', '--every N', "slice every N frames") do |n|
+					options[:every] = n
+				end
+
+				opts.on('-s', '--subdivide N', "subdivide evenly into N files") do |n|
+					options[:subdivide] = n
+				end
+
+				opts.on('--base BASENAME', "the base name for output files, can include directory prefix") do |base|
+					options[:base] = base
+				end
+
+				opts.separator ""
+				opts.separator "common options:"
+
+				opts.on('-v', '--verbose', 'verbose output') do
+					options[:verbose] += 1
+				end
+
+				h_help = 'display this message.'
+				opts.on('-h', '--help', h_help) do 
+					raise ArgumentError.new,  ""
+				end
+			end
+			
+			begin
+				optparse.parse!(argv)
+
+				options[:cmd] = argv.shift
+				if !CMDS.include?(options[:cmd])
+					raise ArgumentError, "must specify a command from: #{CMDS.join(", ")}" 
+				end
+
+				options[:files] = argv
+				raise ArgumentError, "no input files provided" if options[:files].empty?
+			rescue ArgumentError => e
+				puts e.message if !e.message.empty?
+				puts optparse
+
+				exit
+			end	
+			
+			return options
+		end #self.parse
+
+
+		def initialize(options)
+			@options = options
+			@log = Logger.new($stderr)
+
+			@log.level = case @options[:verbose]
+			when 0
+				Logger::WARN
+			when 1
+				Logger::INFO
+			else
+				Logger::DEBUG
+			end
+		end
+
+		def run()
+			@log.debug "files: #{@options[:files].inspect}"
+			case @options[:cmd]
+			when "slice"
+				cmd_slice
+			when "info"
+				cmd_info
+			end
+		end
+
+		def cmd_info
+			properties = [
+				:channels,
+				:encoding,
+				:endian,
+				:format,
+				:frames,
+				:samplerate
+			]
+
+			(@options[:files] || []).each do |fpath|
+				puts "#{fpath}:"
+				info = begin
+					Sndfile::File::info(fpath)
+				rescue Sndfile::Error => e
+					$stderr.puts "could not open #{fpath.inspect}: #{e.message}"
+				end
+
+				properties.each do |p|
+					puts sprintf("%4s%-15s%s", "", "#{p}:", info.send(p))
+				end
+			end
+		end
+
+	end #Cmd
+end
+
+
+if $0 == __FILE__
+	options = Sliceman::Cmd::parse(ARGV)
+	sm = Sliceman::Cmd.new(options)
+	sm.run
+end
+
