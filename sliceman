@@ -1,34 +1,40 @@
 #!/usr/bin/env ruby
-/* 
- * Copyright 2013 anthony cantor
- * This file is part of sliceman.
- *
- * sliceman is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- * 
- * sliceman is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- * 
- * You should have received a copy of the GNU General Public License
- * along with sliceman.  If not, see <http://www.gnu.org/licenses/>.
- */
+
+# Copyright 2013 anthony cantor
+# This file is part of sliceman.
+#
+# sliceman is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+# 
+# sliceman is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with sliceman.  If not, see <http://www.gnu.org/licenses/>.
 
 require 'optparse'
 require 'logger'
-require 'sndfile'
+require 'fileutils'
+
+THIS_DIR = File.expand_path(File.dirname(__FILE__))
+$: << File.join(THIS_DIR, "lib")
+
+require 'sliceman'
 
 module Sliceman
 
 	class Cmd
 
 		CMDS = [
-			'slice',
-			'info'
+			"slice",
+			"info"
 		]
+
+		SLICE_CMDS = ["every", "subdivide"]
 		def self.parse(argv)
 			options = {
 				:verbose 			=> 0,
@@ -39,27 +45,29 @@ module Sliceman
 				opts.separator ""
 
 				opts.separator "slice options:"
-				opts.on('-e', '--every N', "slice every N frames") do |n|
-					options[:every] = n
+				opts.on("-e", "--every N", Integer, "slice every N frames") do |n|
+					options[:n] = n
+					options[:slice_cmd] = "every"
 				end
 
-				opts.on('-s', '--subdivide N', "subdivide evenly into N files") do |n|
-					options[:subdivide] = n
+				opts.on("-s", "--subdivide N", Integer, "subdivide evenly into N files") do |n|
+					options[:n] = n
+					options[:slice_cmd] = "subdivide"
 				end
 
-				opts.on('--base BASENAME', "the base name for output files, can include directory prefix") do |base|
+				opts.on("--base BASENAME", "the base name for output files, can include directory prefix") do |base|
 					options[:base] = base
 				end
 
 				opts.separator ""
 				opts.separator "common options:"
 
-				opts.on('-v', '--verbose', 'verbose output') do
+				opts.on("-v", "--verbose", "verbose output") do
 					options[:verbose] += 1
 				end
 
-				h_help = 'display this message.'
-				opts.on('-h', '--help', h_help) do 
+				h_help = "display this message."
+				opts.on("-h", "--help", h_help) do 
 					raise ArgumentError.new,  ""
 				end
 			end
@@ -74,7 +82,22 @@ module Sliceman
 
 				options[:files] = argv
 				raise ArgumentError, "no input files provided" if options[:files].empty?
-			rescue ArgumentError => e
+
+				case options[:cmd]
+				when "slice"
+					if !SLICE_CMDS.include?(options[:slice_cmd])
+						raise ArgumentError.new, "-e or -s must be specified"
+					end
+
+					if !options[:base].is_a?(String)
+						raise ArgumentError.new, "--base must be specified"
+					end
+
+					if options[:n] < 1
+						raise ArgumentError.new, "invalid #{options[:slice_cmd]} argument: #{options[:n].inspect}"
+					end 
+				end
+			rescue ArgumentError, OptionParser::ParseError => e
 				puts e.message if !e.message.empty?
 				puts optparse
 
@@ -125,6 +148,7 @@ module Sliceman
 					Sndfile::File::info(fpath)
 				rescue Sndfile::Error => e
 					$stderr.puts "could not open #{fpath.inspect}: #{e.message}"
+					next
 				end
 
 				properties.each do |p|
@@ -133,6 +157,38 @@ module Sliceman
 			end
 		end
 
+		def cmd_slice
+			@options[:base] ||= "" 
+
+			dirname = File.dirname(@options[:base]).strip
+			@log.debug "create dir #{dirname}"
+			FileUtils.mkdir_p(dirname)
+
+			(@options[:files] || []).each do |fpath|
+				puts "#{fpath}:"
+				f = begin
+					Sndfile::File::open(fpath)
+				rescue Sndfile::Error => e
+					$stderr.puts "could not open #{fpath.inspect}: #{e.message}"
+					next
+				end
+
+				prefix = @options[:base] + File.basename(fpath).split(".")[0]
+				@log.debug "basename for #{fpath} => #{prefix.inspect}"
+				begin
+					case @options[:slice_cmd]
+					when "every"
+						Sliceman::slice_every_n(f, @options[:n], prefix) do |fname|
+							puts "created slice #{fname}"
+						end
+					else
+						raise "invalid slice command: #{@options[:slice_cmd].inspect}"
+					end
+				ensure
+					f.close
+				end
+			end
+		end
 	end #Cmd
 end
 
