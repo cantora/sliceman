@@ -181,6 +181,10 @@ module Sliceman
 						Sliceman::slice_every_n(f, @options[:n], prefix) do |fname|
 							puts "created slice #{fname}"
 						end
+					when "subdivide"
+						Sliceman::subdivide_by_n(f, @options[:n], prefix) do |fname|
+							puts "created slice #{fname}"
+						end
 					else
 						raise "invalid slice command: #{@options[:slice_cmd].inspect}"
 					end
